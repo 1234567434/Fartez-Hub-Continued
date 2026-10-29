@@ -2,20 +2,20 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local ParentGui = PlayerGui
-if gethui then
-    pcall(function() ParentGui = gethui() end)
+if type(gethui) == "function" then
+    local ok, res = pcall(gethui)
+    if ok and res then ParentGui = res end
 end
 
 if ParentGui:FindFirstChild("FARTEZ_LUCKY_HUB") then
     ParentGui.FARTEZ_LUCKY_HUB:Destroy()
 end
 
--- Anti-AFK
 pcall(function()
     if getconnections then
         for _, c in pairs(getconnections(LocalPlayer.Idled)) do
@@ -23,7 +23,12 @@ pcall(function()
         end
     end
 end)
-LocalPlayer.Idled:Connect(function() end)
+LocalPlayer.Idled:Connect(function()
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end)
+end)
 
 local Theme = {
     Background = Color3.fromRGB(5,5,8),
@@ -58,42 +63,17 @@ _G.BuyEggList = {
     ["Elite Pet Egg Legendary (150 Coins)"] = {ID="i3", Active=false},
     ["Super Pet Egg Mythic (250 Coins)"] = {ID="i4", Active=false},
 }
-
-local EggOrder = {
-    "Basic Pet Egg Rare (50 Coins)",
-    "Quality Pet Egg Epic (100 Coins)",
-    "Elite Pet Egg Legendary (150 Coins)",
-    "Super Pet Egg Mythic (250 Coins)",
-}
-
+local EggOrder = {"Basic Pet Egg Rare (50 Coins)","Quality Pet Egg Epic (100 Coins)","Elite Pet Egg Legendary (150 Coins)","Super Pet Egg Mythic (250 Coins)"}
 local IgnoreActions = {"buy hammers","buy gear","new event!","sign up","spawn godly egg","spawn skibidi egg","spawn og egg","teleport","sell","place","upgrade","trade"}
 local BossTargets = {"Right1","Right2","Right3","Left1","Left2","Left3"}
 
--- Speed: Medium = 0.01 как в v1 оригинале
 local SpeedConfig = {
-    Low    = {hitWait = 0.05},
-    Medium = {hitWait = 0.01},
-    Max    = {hitWait = 0.005},
+    Low    = {hitWait = 0.3},
+    Medium = {hitWait = 0.1},
+    Max    = {hitWait = 0.01},
 }
-
 local function GetHitWait()
     return (SpeedConfig[_G.ScriptSpeed] or SpeedConfig.Medium).hitWait
-end
-
--- Remotes
-local KS = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services")
-local hitEggRF = KS.EggSpawnerService.RF.RequestHitEgg
-local hitVaultRF = KS.EggVaultService.RF.RequestHitVaultEgg
-local bossRF = KS.BossVaultService.RF.RequestHitAttackTarget
-local purchaseRF = KS.PetEggStockService.RF.PurchasePetEgg
-local collectRF = KS.BaseService.RF.RequestPlatformCollect
-local upgradeRF = KS.BaseService.RF.RequestPlatformUpgrade
-local rebirthRF = KS.RebirthService.RF.RequestRebirth
-
-local function Teleport(cf)
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    char.HumanoidRootPart.CFrame = cf * CFrame.new(0,3,0)
 end
 
 -------------------- GUI --------------------
@@ -200,7 +180,6 @@ Tabs[1].Btn.BackgroundColor3 = Theme.Accent
 Tabs[1].Btn.TextColor3 = Color3.new(0,0,0)
 ToggleBtn.MouseButton1Click:Connect(function() Main.Visible = not Main.Visible end)
 
--- Speed Selector
 do
     local box = Instance.new("Frame", MainPage)
     box.Size = UDim2.new(0,300,0,70); box.BackgroundColor3 = Theme.SurfaceLight
@@ -293,11 +272,10 @@ local function CreateToggleWithInput(parent, text, var, inputVar, mn, mx)
     end)
 end
 
--- MAIN TAB
 CreateToggle(MainPage, " AUTO HIT ALL", "AutoBreak")
 CreateToggle(MainPage, " AUTO HIT EGG VAULT", "AutoHitBigEgg")
-CreateToggle(MainPage, " AUTO HIT HALLOWEEN 🎃", "AutoHitHalloween")
-CreateToggle(MainPage, " AUTO BREAK BOSS 💀", "AutoBreakBoss")
+CreateToggle(MainPage, " AUTO HIT HALLOWEEN �", "AutoHitHalloween")
+CreateToggle(MainPage, " AUTO BREAK BOSS �", "AutoBreakBoss")
 CreateToggle(MainPage, " AUTO KEY VAULT ZONE 1", "AutoKeyVaultZone1")
 CreateToggle(MainPage, " AUTO KEY VAULT ZONE 2", "AutoKeyVaultZone2")
 CreateToggle(MainPage, " AUTO KEY VAULT ZONE 3", "AutoKeyVaultZone3")
@@ -307,13 +285,14 @@ CreateToggle(MainPage, " AUTO BYPASS ZONES", "BypassZones")
 CreateButton(MainPage, " TP to Shop Zone 3", function()
     pcall(function()
         local w = workspace:FindFirstChild("World")
-        local tp = w and w:FindFirstChild("TeleportPoints")
-        local sp = tp and tp:FindFirstChild("Shop_Zone3")
-        if sp then Teleport(sp.CFrame) end
+        if w then w = w:FindFirstChild("TeleportPoints") end
+        if w then w = w:FindFirstChild("Shop_Zone3") end
+        if w and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = w.CFrame * CFrame.new(0,3,0)
+        end
     end)
 end)
 
--- EGG TAB
 local eggHeader = Instance.new("TextButton", EggPage)
 eggHeader.Size = UDim2.new(0,300,0,32); eggHeader.BackgroundColor3 = Theme.SurfaceLight
 eggHeader.Text = "   Select Eggs to Buy "; eggHeader.TextColor3 = Theme.Text
@@ -348,13 +327,11 @@ for _, eggName in ipairs(EggOrder) do
 end
 CreateToggle(EggPage, " AUTO BUY SELECTED EGGS", "AutoBuyEggs")
 
--- COLLECT TAB
 CreateToggle(CollectPage, " AUTO COLLECT MONEY", "AutoCollect")
 CreateToggle(CollectPage, " AUTO UPGRADE ALL", "AutoUpgradeAll")
 CreateToggleWithInput(CollectPage, " AUTO UPGRADE", "AutoUpgradeSpecific", "TargetPlatform", 1, 30)
 CreateToggle(CollectPage, " AUTO REBIRTH", "AutoRebirth")
 
--- INFO
 local function AddInfo(parent, text, color, size)
     local l = Instance.new("TextLabel", parent)
     l.Size = UDim2.new(1,0,0,25); l.BackgroundTransparency = 1
@@ -365,15 +342,15 @@ AddInfo(DetailsPage, " by FARTEZ", Theme.Success)
 AddInfo(DetailsPage, " YouTube FARTEZ HUB", Theme.Success)
 AddInfo(DetailsPage, " It works", Theme.Success)
 AddInfo(UpdatePage, "NEW UPDATE 3.1", Theme.Success, 15)
-AddInfo(UpdatePage, " ⚡ v1 engine 0.01s + speed", Theme.Success)
-AddInfo(UpdatePage, " 🎃 Auto Hit Halloween", Theme.Success)
-AddInfo(UpdatePage, " 💀 Auto Break Boss", Theme.Success)
-AddInfo(UpdatePage, " 🥚 Auto Buy Egg", Theme.Success)
-AddInfo(UpdatePage, " 🔧 Anti-AFK Fix", Theme.Success)
+AddInfo(UpdatePage, " Fixed remote args (Cobalt)", Theme.Success)
+AddInfo(UpdatePage, " v1 engine + Speed Selector", Theme.Success)
+AddInfo(UpdatePage, " Auto Hit Halloween", Theme.Success)
+AddInfo(UpdatePage, " Auto Break Boss", Theme.Success)
+AddInfo(UpdatePage, " Auto Buy Egg", Theme.Success)
+AddInfo(UpdatePage, " Anti-AFK Fix", Theme.Success)
 
--------------------- LOOPS (v1 mechanism + Speed) --------------------
+-------------------- LOOPS --------------------
 
--- Bypass walls
 task.spawn(function()
     while task.wait(1.5) do
         if _G.BypassZones then
@@ -388,7 +365,6 @@ task.spawn(function()
     end
 end)
 
--- Instant prompt
 task.spawn(function()
     while task.wait(0.5) do
         if _G.InstantPrompt then
@@ -401,30 +377,33 @@ task.spawn(function()
     end
 end)
 
--- NoCollide
-RunService.Stepped:Connect(function()
-    if _G.AutoKeyVaultZone1 or _G.AutoKeyVaultZone2 or _G.AutoKeyVaultZone3 then
-        pcall(function()
-            if LocalPlayer.Character then
-                for _, p in pairs(LocalPlayer.Character:GetChildren()) do
-                    if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" and p.CanCollide then
-                        p.CanCollide = false
+task.spawn(function()
+    RunService.Stepped:Connect(function()
+        if (_G.AutoKeyVaultZone1 or _G.AutoKeyVaultZone2 or _G.AutoKeyVaultZone3) then
+            pcall(function()
+                if LocalPlayer.Character then
+                    for _, p in pairs(LocalPlayer.Character:GetChildren()) do
+                        if (p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" and p.CanCollide) then
+                            p.CanCollide = false
+                        end
                     end
                 end
-            end
-            for _, c in ipairs({workspace:FindFirstChild("Eggs"), workspace:FindFirstChild("EggRenderModels")}) do
-                if c then
-                    for _, d in pairs(c:GetDescendants()) do
-                        if d:IsA("BasePart") and d.CanCollide then d.CanCollide = false end
+                for _, c in ipairs({workspace:FindFirstChild("Eggs"), workspace:FindFirstChild("EggRenderModels")}) do
+                    if c then
+                        for _, d in pairs(c:GetDescendants()) do
+                            if (d:IsA("BasePart") and d.CanCollide) then d.CanCollide = false end
+                        end
                     end
                 end
-            end
-        end)
-    end
+            end)
+        end
+    end)
 end)
 
--- Key Vault (v1: 0.1s)
+-- Key Vault (v1: 0.1s, args fixed)
 task.spawn(function()
+    local hitEggRF = nil
+    local hitVaultRF = nil
     local lastHit = 0
     while task.wait(0.1) do
         local zone = nil
@@ -433,6 +412,12 @@ task.spawn(function()
         elseif _G.AutoKeyVaultZone3 then zone = "StealZone3" end
         if zone and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character:FindFirstChild("Humanoid") then
             pcall(function()
+                if not hitEggRF then
+                    hitEggRF = game:GetService("ReplicatedStorage").Packages.Knit.Services.EggSpawnerService.RF.RequestHitEgg
+                end
+                if not hitVaultRF then
+                    hitVaultRF = game:GetService("ReplicatedStorage").Packages.Knit.Services.EggVaultService.RF.RequestHitVaultEgg
+                end
                 local hrp = LocalPlayer.Character.HumanoidRootPart
                 local hum = LocalPlayer.Character.Humanoid
                 local w = workspace:FindFirstChild("World")
@@ -444,22 +429,24 @@ task.spawn(function()
                 for _, c in ipairs({workspace:FindFirstChild("Eggs"), workspace:FindFirstChild("EggRenderModels")}) do
                     if c then
                         for _, d in pairs(c:GetDescendants()) do
-                            if (d:IsA("Model") or d:IsA("BasePart")) and d.Name:find("-") and #d.Name == 36 then
+                            if ((d:IsA("Model") or d:IsA("BasePart")) and d.Name:find("-") and (#d.Name == 36)) then
                                 local part = (d:IsA("BasePart") and d) or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                                if part and (part.Position - zp.Position).Magnitude <= 100 then
-                                    table.insert(targets, d)
-                                    local dist = (hrp.Position - part.Position).Magnitude
-                                    if dist < closestDist then closestDist = dist; closestPart = part end
+                                if part then
+                                    if (part.Position - zp.Position).Magnitude <= 100 then
+                                        table.insert(targets, d)
+                                        local dist = (hrp.Position - part.Position).Magnitude
+                                        if dist < closestDist then closestDist = dist; closestPart = part end
+                                    end
                                 end
                             end
                         end
                     end
                 end
                 if closestPart then
-                    local d = (hrp.Position - closestPart.Position).Magnitude
-                    if d > 10 then
+                    local dist = (hrp.Position - closestPart.Position).Magnitude
+                    if dist > 10 then
                         hum:MoveTo(closestPart.Position)
-                        if hrp.Velocity.Magnitude < 1 and d > 15 then hum.Jump = true end
+                        if (hrp.Velocity.Magnitude < 1 and dist > 15) then hum.Jump = true end
                     else
                         hum:MoveTo(hrp.Position)
                         if #targets > 0 and (os.clock() - lastHit) >= 0.6 then
@@ -467,19 +454,18 @@ task.spawn(function()
                             for _, t in ipairs(targets) do
                                 task.spawn(function()
                                     pcall(function()
-                                        local args = {[1] = {[1] = t.Name}}
-                                        hitEggRF:InvokeServer(unpack(args))
-                                        hitVaultRF:InvokeServer(unpack(args))
+                                        if hitEggRF then hitEggRF:InvokeServer({t.Name}) end
+                                        if hitVaultRF then hitVaultRF:InvokeServer({t.Name}) end
                                     end)
                                 end)
                             end
                         end
                     end
                 else
-                    local d = (hrp.Position - zp.Position).Magnitude
-                    if d > 15 then
+                    local dist = (hrp.Position - zp.Position).Magnitude
+                    if dist > 15 then
                         hum:MoveTo(zp.Position)
-                        if hrp.Velocity.Magnitude < 1 and d > 20 then hum.Jump = true end
+                        if (hrp.Velocity.Magnitude < 1 and dist > 20) then hum.Jump = true end
                     else
                         hum:MoveTo(hrp.Position)
                     end
@@ -489,22 +475,26 @@ task.spawn(function()
     end
 end)
 
--- AUTO HIT ALL (v1 + Speed: 0.01s)
+-- AUTO HIT ALL (v1 + GetHitWait, arg: {name})
 task.spawn(function()
-    while true do
-        task.wait(GetHitWait())
-        if _G.AutoBreak and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+    local rf = nil
+    while task.wait(GetHitWait()) do
+        if (_G.AutoBreak and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then
             pcall(function()
+                if not rf then
+                    rf = game:GetService("ReplicatedStorage").Packages.Knit.Services.EggSpawnerService.RF.RequestHitEgg
+                end
+                if not rf then return end
                 local hrp = LocalPlayer.Character.HumanoidRootPart
                 for _, c in ipairs({workspace:FindFirstChild("Eggs"), workspace:FindFirstChild("EggRenderModels")}) do
                     if c then
                         for _, d in pairs(c:GetDescendants()) do
-                            if (d:IsA("Model") or d:IsA("BasePart")) and d.Name:find("-") and #d.Name == 36 then
+                            if ((d:IsA("Model") or d:IsA("BasePart")) and d.Name:find("-") and (#d.Name == 36)) then
                                 local part = (d:IsA("BasePart") and d) or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                                if part and (part.Position - hrp.Position).Magnitude <= 150 then
+                                if (part and ((part.Position - hrp.Position).Magnitude <= 150)) then
                                     task.spawn(function()
                                         pcall(function()
-                                            hitEggRF:InvokeServer({[1] = d.Name})
+                                            rf:InvokeServer({d.Name})
                                         end)
                                     end)
                                 end
@@ -517,22 +507,26 @@ task.spawn(function()
     end
 end)
 
--- AUTO HIT EGG VAULT (v1 + Speed: 0.01s)
+-- AUTO HIT EGG VAULT (v1 + GetHitWait, arg: {name})
 task.spawn(function()
-    while true do
-        task.wait(GetHitWait())
-        if _G.AutoHitBigEgg and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+    local rf = nil
+    while task.wait(GetHitWait()) do
+        if (_G.AutoHitBigEgg and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then
             pcall(function()
+                if not rf then
+                    rf = game:GetService("ReplicatedStorage").Packages.Knit.Services.EggVaultService.RF.RequestHitVaultEgg
+                end
+                if not rf then return end
                 local hrp = LocalPlayer.Character.HumanoidRootPart
                 for _, c in ipairs({workspace:FindFirstChild("Eggs"), workspace:FindFirstChild("EggRenderModels")}) do
                     if c then
                         for _, d in pairs(c:GetDescendants()) do
-                            if (d:IsA("Model") or d:IsA("BasePart")) and d.Name:find("-") and #d.Name == 36 then
+                            if ((d:IsA("Model") or d:IsA("BasePart")) and d.Name:find("-") and (#d.Name == 36)) then
                                 local part = (d:IsA("BasePart") and d) or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                                if part and (part.Position - hrp.Position).Magnitude <= 150 then
+                                if (part and ((part.Position - hrp.Position).Magnitude <= 150)) then
                                     task.spawn(function()
                                         pcall(function()
-                                            hitVaultRF:InvokeServer({[1] = {[1] = d.Name}})
+                                            rf:InvokeServer({d.Name})
                                         end)
                                     end)
                                 end
@@ -545,23 +539,30 @@ task.spawn(function()
     end
 end)
 
--- AUTO HIT HALLOWEEN (v1 + Speed, no UUID filter)
+-- AUTO HIT HALLOWEEN (v1 + GetHitWait, no UUID, arg: {name})
 task.spawn(function()
-    while true do
-        task.wait(GetHitWait())
-        if _G.AutoHitHalloween and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+    local hitEgg = nil
+    local hitVault = nil
+    while task.wait(GetHitWait()) do
+        if (_G.AutoHitHalloween and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then
             pcall(function()
+                if not hitEgg then
+                    hitEgg = game:GetService("ReplicatedStorage").Packages.Knit.Services.EggSpawnerService.RF.RequestHitEgg
+                end
+                if not hitVault then
+                    hitVault = game:GetService("ReplicatedStorage").Packages.Knit.Services.EggVaultService.RF.RequestHitVaultEgg
+                end
                 local hrp = LocalPlayer.Character.HumanoidRootPart
                 for _, c in ipairs({workspace:FindFirstChild("EggRenderModels"), workspace:FindFirstChild("Eggs")}) do
                     if c then
                         for _, d in pairs(c:GetChildren()) do
-                            if (d:IsA("Model") or d:IsA("BasePart")) and d.Name and d.Name ~= "" then
+                            if ((d:IsA("Model") or d:IsA("BasePart")) and d.Name and d.Name ~= "") then
                                 local part = (d:IsA("BasePart") and d) or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                                if part and (part.Position - hrp.Position).Magnitude <= 200 then
+                                if (part and ((part.Position - hrp.Position).Magnitude <= 200)) then
                                     task.spawn(function()
                                         pcall(function()
-                                            hitEggRF:InvokeServer({[1] = d.Name})
-                                            hitVaultRF:InvokeServer({[1] = {[1] = d.Name}})
+                                            if hitEgg then hitEgg:InvokeServer({d.Name}) end
+                                            if hitVault then hitVault:InvokeServer({d.Name}) end
                                         end)
                                     end)
                                 end
@@ -574,16 +575,20 @@ task.spawn(function()
     end
 end)
 
--- AUTO BREAK BOSS (v1 + Speed, no teleport)
+-- AUTO BREAK BOSS (v1 + GetHitWait, arg: {targetName})
 task.spawn(function()
-    while true do
-        task.wait(GetHitWait())
+    local rf = nil
+    while task.wait(GetHitWait()) do
         if _G.AutoBreakBoss then
             pcall(function()
+                if not rf then
+                    rf = game:GetService("ReplicatedStorage").Packages.Knit.Services.BossVaultService.RF.RequestHitAttackTarget
+                end
+                if not rf then return end
                 for _, name in ipairs(BossTargets) do
                     task.spawn(function()
                         pcall(function()
-                            bossRF:InvokeServer({name})
+                            rf:InvokeServer({name})
                         end)
                     end)
                 end
@@ -592,15 +597,21 @@ task.spawn(function()
     end
 end)
 
--- AUTO BUY EGGS
+-- AUTO BUY EGGS (v1)
 task.spawn(function()
+    local rf = nil
     while task.wait(0.5) do
         if _G.AutoBuyEggs then
             pcall(function()
-                for _, data in pairs(_G.BuyEggList) do
-                    if data.Active then
-                        task.spawn(function() pcall(function() purchaseRF:InvokeServer(data.ID, 1) end) end)
-                        task.wait(0.1)
+                if not rf then
+                    rf = game:GetService("ReplicatedStorage").Packages.Knit.Services.PetEggStockService.RF.PurchasePetEgg
+                end
+                if rf then
+                    for _, data in pairs(_G.BuyEggList) do
+                        if data.Active then
+                            task.spawn(function() pcall(function() rf:InvokeServer(data.ID, 1) end) end)
+                            task.wait(0.1)
+                        end
                     end
                 end
             end)
@@ -608,67 +619,89 @@ task.spawn(function()
     end
 end)
 
--- AUTO COLLECT
+-- AUTO COLLECT (v1)
 task.spawn(function()
+    local rf = nil
     while task.wait(0.5) do
         if _G.AutoCollect then
             pcall(function()
-                for i = 1, 60 do
-                    task.spawn(function() pcall(function() collectRF:InvokeServer(i) end) end)
+                if not rf then
+                    rf = game:GetService("ReplicatedStorage").Packages.Knit.Services.BaseService.RF.RequestPlatformCollect
                 end
-            end)
-        end
-    end
-end)
-
--- AUTO UPGRADE
-task.spawn(function()
-    while task.wait(0.2) do
-        if _G.AutoUpgradeAll or _G.AutoUpgradeSpecific then
-            pcall(function()
-                if _G.AutoUpgradeAll then
-                    for i = 1, 30 do
-                        task.spawn(function() pcall(function() upgradeRF:InvokeServer(i) end) end)
+                if rf then
+                    for i = 1, 60 do
+                        task.spawn(function() pcall(function() rf:InvokeServer(i) end) end)
                     end
-                elseif _G.AutoUpgradeSpecific then
-                    task.spawn(function() pcall(function() upgradeRF:InvokeServer(_G.TargetPlatform) end) end)
                 end
             end)
         end
     end
 end)
 
--- AUTO REBIRTH
+-- AUTO UPGRADE (v1)
 task.spawn(function()
+    local rf = nil
+    while task.wait(0.2) do
+        if (_G.AutoUpgradeAll or _G.AutoUpgradeSpecific) then
+            pcall(function()
+                if not rf then
+                    rf = game:GetService("ReplicatedStorage").Packages.Knit.Services.BaseService.RF.RequestPlatformUpgrade
+                end
+                if rf then
+                    if _G.AutoUpgradeAll then
+                        for i = 1, 30 do
+                            task.spawn(function() pcall(function() rf:InvokeServer(i) end) end)
+                        end
+                    elseif _G.AutoUpgradeSpecific then
+                        task.spawn(function() pcall(function() rf:InvokeServer(_G.TargetPlatform) end) end)
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- AUTO REBIRTH (v1)
+task.spawn(function()
+    local rf = nil
     while task.wait(1.5) do
         if _G.AutoRebirth then
-            pcall(function() rebirthRF:InvokeServer() end)
+            pcall(function()
+                if not rf then
+                    rf = game:GetService("ReplicatedStorage").Packages.Knit.Services.RebirthService.RF.RequestRebirth
+                end
+                if rf then rf:InvokeServer() end
+            end)
         end
     end
 end)
 
--- AUTO PICK UP
+-- AUTO PICK UP (v1)
 task.spawn(function()
     while task.wait(0.2) do
-        if _G.AutoPickUp and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        if (_G.AutoPickUp and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then
             pcall(function()
                 local dropOpen = false
-                for _, g in pairs(PlayerGui:GetDescendants()) do
-                    if (g:IsA("TextButton") or g:IsA("ImageButton")) and g.Visible then
-                        local t = (g:IsA("TextButton") and g.Text:lower()) or ""
-                        if t:find("drop") or g.Name:lower():find("drop") then dropOpen = true; break end
+                if PlayerGui then
+                    for _, g in pairs(PlayerGui:GetDescendants()) do
+                        if ((g:IsA("TextButton") or g:IsA("ImageButton")) and g.Visible) then
+                            local t = (g:IsA("TextButton") and g.Text:lower()) or ""
+                            if (t:find("drop") or g.Name:lower():find("drop")) then dropOpen = true; break end
+                        end
                     end
                 end
                 if dropOpen then return end
                 local hrp = LocalPlayer.Character.HumanoidRootPart
                 for _, d in pairs(workspace:GetDescendants()) do
                     if d:IsA("ProximityPrompt") then
-                        local txt = (d.ActionText.." "..d.ObjectText.." "..d.Name):lower()
+                        local txt = (d.ActionText .. " " .. d.ObjectText .. " " .. d.Name):lower()
                         local ignore = false
-                        for _, kw in ipairs(IgnoreActions) do if txt:find(kw) then ignore = true; break end end
-                        if not ignore and (txt:find("pick") or txt:find("up")) then
+                        for _, kw in ipairs(IgnoreActions) do
+                            if txt:find(kw) then ignore = true; break end
+                        end
+                        if (not ignore and (txt:find("pick") or txt:find("up"))) then
                             local anc = d:FindFirstAncestorWhichIsA("BasePart")
-                            if anc and (anc.Position - hrp.Position).Magnitude <= 15 then
+                            if (anc and ((anc.Position - hrp.Position).Magnitude <= 15)) then
                                 fireproximityprompt(d)
                             end
                         end
