@@ -680,14 +680,3 @@ task.spawn(function()
 end)
 
 print("[FARTEZ LUCKY HUB v3.1] Loaded")
-```
-
-**Что исправлено:**
-
-1. **`gethui` ошибка** — заменено на безопасную проверку:
-```lua
-local ParentGui = PlayerGui
-if gethui then
-    pcall(function() ParentGui = gethui() end)
-end
-| Max | 0.005s | ~200 |
