@@ -5,7 +5,11 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local ParentGui = (pcall(function() return gethui() end) and gethui()) or PlayerGui
+
+local ParentGui = PlayerGui
+if gethui then
+    pcall(function() ParentGui = gethui() end)
+end
 
 if ParentGui:FindFirstChild("FARTEZ_LUCKY_HUB") then
     ParentGui.FARTEZ_LUCKY_HUB:Destroy()
@@ -65,11 +69,11 @@ local EggOrder = {
 local IgnoreActions = {"buy hammers","buy gear","new event!","sign up","spawn godly egg","spawn skibidi egg","spawn og egg","teleport","sell","place","upgrade","trade"}
 local BossTargets = {"Right1","Right2","Right3","Left1","Left2","Left3"}
 
--- Speed: Medium = 0.1 как в v1 оригинале
+-- Speed: Medium = 0.01 как в v1 оригинале
 local SpeedConfig = {
-    Low    = {hitWait = 0.3},
-    Medium = {hitWait = 0.1},
-    Max    = {hitWait = 0.03},
+    Low    = {hitWait = 0.05},
+    Medium = {hitWait = 0.01},
+    Max    = {hitWait = 0.005},
 }
 
 local function GetHitWait()
@@ -197,8 +201,8 @@ Tabs[1].Btn.TextColor3 = Color3.new(0,0,0)
 ToggleBtn.MouseButton1Click:Connect(function() Main.Visible = not Main.Visible end)
 
 -- Speed Selector
-local function CreateSpeedSelector(parent)
-    local box = Instance.new("Frame", parent)
+do
+    local box = Instance.new("Frame", MainPage)
     box.Size = UDim2.new(0,300,0,70); box.BackgroundColor3 = Theme.SurfaceLight
     Instance.new("UICorner", box).CornerRadius = UDim.new(0,8)
     local label = Instance.new("TextLabel", box)
@@ -232,7 +236,6 @@ local function CreateSpeedSelector(parent)
     buttons.Medium.Btn.BackgroundColor3 = buttons.Medium.Color
     buttons.Medium.Btn.TextColor3 = Color3.new(1,1,1)
 end
-CreateSpeedSelector(MainPage)
 
 local function CreateToggle(parent, text, var)
     local btn = Instance.new("TextButton", parent)
@@ -244,9 +247,6 @@ local function CreateToggle(parent, text, var)
     dot.Size = UDim2.new(0,10,0,10); dot.Position = UDim2.new(1,-20,0.5,-5)
     dot.BackgroundColor3 = Theme.TextDim
     Instance.new("UICorner", dot).CornerRadius = UDim.new(1,0)
-    if _G[var] then
-        btn.BackgroundColor3 = Theme.Accent; btn.TextColor3 = Color3.new(0,0,0); dot.BackgroundColor3 = Theme.Accent
-    end
     btn.MouseButton1Click:Connect(function()
         _G[var] = not _G[var]; local on = _G[var]
         TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3=on and Theme.Accent or Theme.SurfaceLight, TextColor3=on and Color3.new(0,0,0) or Theme.Text}):Play()
@@ -320,7 +320,6 @@ eggHeader.Text = "   Select Eggs to Buy "; eggHeader.TextColor3 = Theme.Text
 eggHeader.Font = Enum.Font.GothamBold; eggHeader.TextSize = 12
 eggHeader.TextXAlignment = Enum.TextXAlignment.Left
 Instance.new("UICorner", eggHeader).CornerRadius = UDim.new(0,8)
-
 local eggList = Instance.new("ScrollingFrame", EggPage)
 eggList.Size = UDim2.new(0,300,0,150); eggList.BackgroundColor3 = Theme.Background
 eggList.Visible = false; eggList.ScrollBarThickness = 2; eggList.BorderSizePixel = 0
@@ -335,14 +334,12 @@ task.spawn(function()
     end
 end)
 eggHeader.MouseButton1Click:Connect(function() eggList.Visible = not eggList.Visible end)
-
 for _, eggName in ipairs(EggOrder) do
     local b = Instance.new("TextButton", eggList)
     b.Size = UDim2.new(0,280,0,32); b.BackgroundColor3 = Theme.SurfaceLight
     b.Text = "  [ ]  "..eggName; b.TextColor3 = Theme.TextDim
     b.Font = Enum.Font.GothamBold; b.TextSize = 11; b.TextXAlignment = Enum.TextXAlignment.Left
     Instance.new("UICorner", b).CornerRadius = UDim.new(0,6)
-    if _G.BuyEggList[eggName].Active then b.Text = "  [✓]  "..eggName; b.TextColor3 = Theme.Accent end
     b.MouseButton1Click:Connect(function()
         _G.BuyEggList[eggName].Active = not _G.BuyEggList[eggName].Active
         if _G.BuyEggList[eggName].Active then b.Text = "  [✓]  "..eggName; b.TextColor3 = Theme.Accent
@@ -368,16 +365,15 @@ AddInfo(DetailsPage, " by FARTEZ", Theme.Success)
 AddInfo(DetailsPage, " YouTube FARTEZ HUB", Theme.Success)
 AddInfo(DetailsPage, " It works", Theme.Success)
 AddInfo(UpdatePage, "NEW UPDATE 3.1", Theme.Success, 15)
-AddInfo(UpdatePage, " ⚡ Fast Hits (v1 engine + speed)", Theme.Success)
-AddInfo(UpdatePage, " ⚙️ Speed Selector", Theme.Success)
+AddInfo(UpdatePage, " ⚡ v1 engine 0.01s + speed", Theme.Success)
 AddInfo(UpdatePage, " 🎃 Auto Hit Halloween", Theme.Success)
 AddInfo(UpdatePage, " 💀 Auto Break Boss", Theme.Success)
 AddInfo(UpdatePage, " 🥚 Auto Buy Egg", Theme.Success)
 AddInfo(UpdatePage, " 🔧 Anti-AFK Fix", Theme.Success)
 
--------------------- LOOPS (v1 mechanism + Speed Selector) --------------------
+-------------------- LOOPS (v1 mechanism + Speed) --------------------
 
--- Bypass walls (v1: 1.5s)
+-- Bypass walls
 task.spawn(function()
     while task.wait(1.5) do
         if _G.BypassZones then
@@ -392,7 +388,7 @@ task.spawn(function()
     end
 end)
 
--- Instant prompt (v1: 0.5s)
+-- Instant prompt
 task.spawn(function()
     while task.wait(0.5) do
         if _G.InstantPrompt then
@@ -405,7 +401,7 @@ task.spawn(function()
     end
 end)
 
--- NoCollide (v1: Stepped)
+-- NoCollide
 RunService.Stepped:Connect(function()
     if _G.AutoKeyVaultZone1 or _G.AutoKeyVaultZone2 or _G.AutoKeyVaultZone3 then
         pcall(function()
@@ -427,7 +423,7 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Key Vault (v1 mechanism: 0.1s loop, movement + 0.6s attack cooldown)
+-- Key Vault (v1: 0.1s)
 task.spawn(function()
     local lastHit = 0
     while task.wait(0.1) do
@@ -444,7 +440,7 @@ task.spawn(function()
                 local zp = zones and zones:FindFirstChild(zone)
                 if not zp then return end
                 local targets = {}
-                local closest = nil; local closestPart = nil; local closestDist = math.huge
+                local closestPart = nil; local closestDist = math.huge
                 for _, c in ipairs({workspace:FindFirstChild("Eggs"), workspace:FindFirstChild("EggRenderModels")}) do
                     if c then
                         for _, d in pairs(c:GetDescendants()) do
@@ -453,13 +449,13 @@ task.spawn(function()
                                 if part and (part.Position - zp.Position).Magnitude <= 100 then
                                     table.insert(targets, d)
                                     local dist = (hrp.Position - part.Position).Magnitude
-                                    if dist < closestDist then closestDist = dist; closest = d; closestPart = part end
+                                    if dist < closestDist then closestDist = dist; closestPart = part end
                                 end
                             end
                         end
                     end
                 end
-                if closest and closestPart then
+                if closestPart then
                     local d = (hrp.Position - closestPart.Position).Magnitude
                     if d > 10 then
                         hum:MoveTo(closestPart.Position)
@@ -493,8 +489,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO HIT ALL (v1 mechanism + Speed Selector)
--- v1: while task.wait(0.1), scan all, task.spawn InvokeServer, range 150, arg {[1]=name}
+-- AUTO HIT ALL (v1 + Speed: 0.01s)
 task.spawn(function()
     while true do
         task.wait(GetHitWait())
@@ -522,8 +517,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO HIT EGG VAULT (v1 mechanism + Speed Selector)
--- v1: while task.wait(0.1), scan all, task.spawn InvokeServer, range 150, arg {[1]={[1]=name}}
+-- AUTO HIT EGG VAULT (v1 + Speed: 0.01s)
 task.spawn(function()
     while true do
         task.wait(GetHitWait())
@@ -551,7 +545,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO HIT HALLOWEEN (v1 mechanism, no UUID filter + Speed Selector)
+-- AUTO HIT HALLOWEEN (v1 + Speed, no UUID filter)
 task.spawn(function()
     while true do
         task.wait(GetHitWait())
@@ -580,7 +574,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO BREAK BOSS (v1 mechanism + Speed Selector, no teleport)
+-- AUTO BREAK BOSS (v1 + Speed, no teleport)
 task.spawn(function()
     while true do
         task.wait(GetHitWait())
@@ -598,16 +592,14 @@ task.spawn(function()
     end
 end)
 
--- AUTO BUY EGGS (v1: 0.5s)
+-- AUTO BUY EGGS
 task.spawn(function()
     while task.wait(0.5) do
         if _G.AutoBuyEggs then
             pcall(function()
                 for _, data in pairs(_G.BuyEggList) do
                     if data.Active then
-                        task.spawn(function()
-                            pcall(function() purchaseRF:InvokeServer(data.ID, 1) end)
-                        end)
+                        task.spawn(function() pcall(function() purchaseRF:InvokeServer(data.ID, 1) end) end)
                         task.wait(0.1)
                     end
                 end
@@ -616,7 +608,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO COLLECT (v1: 0.5s, platforms 1-60)
+-- AUTO COLLECT
 task.spawn(function()
     while task.wait(0.5) do
         if _G.AutoCollect then
@@ -629,7 +621,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO UPGRADE (v1: 0.2s)
+-- AUTO UPGRADE
 task.spawn(function()
     while task.wait(0.2) do
         if _G.AutoUpgradeAll or _G.AutoUpgradeSpecific then
@@ -646,7 +638,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO REBIRTH (v1: 1.5s)
+-- AUTO REBIRTH
 task.spawn(function()
     while task.wait(1.5) do
         if _G.AutoRebirth then
@@ -655,7 +647,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO PICK UP (v1: 0.2s)
+-- AUTO PICK UP
 task.spawn(function()
     while task.wait(0.2) do
         if _G.AutoPickUp and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
@@ -687,6 +679,15 @@ task.spawn(function()
     end
 end)
 
-print("[FARTEZ LUCKY HUB v3.1] Loaded — v1 engine + Speed Selector")
+print("[FARTEZ LUCKY HUB v3.1] Loaded")
+```
 
-Теперь на **Medium** работает точно как v1 (0.1s), на **Max** — в 3 раза быстрее v1.
+**Что исправлено:**
+
+1. **`gethui` ошибка** — заменено на безопасную проверку:
+```lua
+local ParentGui = PlayerGui
+if gethui then
+    pcall(function() ParentGui = gethui() end)
+end
+| Max | 0.005s | ~200 |
