@@ -1740,7 +1740,7 @@ local OpenBtn = new("ImageButton", {
     Size = UDim2.new(0, 48, 0, 48),
     Position = UDim2.new(0, 16, 0, 140),
     BackgroundColor3 = T.surface2,
-    Image = "rbxthumb://type=Asset&id=117149073945265&w=150&h=150",
+    Image = "rbxthumb://type=Asset&id=108063912516457&w=150&h=150",
     AutoButtonColor = false,
     BorderSizePixel = 0,
 }, Gui)
