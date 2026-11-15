@@ -1,6 +1,7 @@
-
---  FARTEZ CONTINUED HUB v4.4 (so i think it is cool)
-
+--=====================================================================
+--  FARTEZ LUCKY HUB  ·  v4.4  "HIT FIX EDITION"
+--  Break a Brainrot Egg — полная переписка движка и интерфейса
+--=====================================================================
 local Players           = game:GetService("Players")
 local TweenService      = game:GetService("TweenService")
 local RunService        = game:GetService("RunService")
@@ -17,6 +18,10 @@ if not LocalPlayer then
 end
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
+-----------------------------------------------------------------------
+-- 0. ГАШЕНИЕ ПРОШЛОЙ СЕССИИ
+--    Повторный запуск не должен оставлять висеть старые циклы и GUI.
+-----------------------------------------------------------------------
 if getgenv then
     local prev = getgenv().FARTEZ_HUB
     if prev and type(prev.destroy) == "function" then pcall(prev.destroy) end
@@ -31,18 +36,22 @@ if ParentGui:FindFirstChild("FARTEZ_LUCKY_HUB") then
     ParentGui.FARTEZ_LUCKY_HUB:Destroy()
 end
 
+-----------------------------------------------------------------------
+-- 1. СОСТОЯНИЕ
+--    Флаги живут в _G — так их можно дёргать и из консоли, и из GUI.
+-----------------------------------------------------------------------
 local F = _G
 
 F.AutoBreak          = F.AutoBreak          or false
 F.AutoHitBigEgg      = F.AutoHitBigEgg      or false
 F.AutoHitHalloween   = F.AutoHitHalloween   or false
 F.AutoBreakBoss      = F.AutoBreakBoss      or false
-F.AutoHitTurkey      = F.AutoHitTurkey      or false   
-F.TurkeyAll          = F.TurkeyAll          or false   
-F.TurkeyBrute        = F.TurkeyBrute        or false   
+F.AutoHitTurkey      = F.AutoHitTurkey      or false   -- NEW
+F.TurkeyAll          = F.TurkeyAll          or false   -- NEW: бить без радиуса
+F.TurkeyBrute        = F.TurkeyBrute        or false   -- NEW: перебор t1..tN
 F.TurkeyBruteMax     = F.TurkeyBruteMax     or 1000
-if F.TurkeyCollect   == nil then F.TurkeyCollect = true end  
-if F.AutoAntiAfk     == nil then F.AutoAntiAfk   = true end  
+if F.TurkeyCollect   == nil then F.TurkeyCollect = true end  -- NEW: подбор TurkeyCoin
+if F.AutoAntiAfk     == nil then F.AutoAntiAfk   = true end  -- NEW: анти-афк вместе с авто-фичами
 F.AutoKeyVaultZone1  = F.AutoKeyVaultZone1  or false
 F.AutoKeyVaultZone2  = F.AutoKeyVaultZone2  or false
 F.AutoKeyVaultZone3  = F.AutoKeyVaultZone3  or false
@@ -54,9 +63,13 @@ F.AutoRebirth        = F.AutoRebirth        or false
 F.AutoBuyEggs        = F.AutoBuyEggs        or false
 F.InstantPrompt      = F.InstantPrompt      or false
 F.BypassZones        = F.BypassZones        or false
-F.AutoNoclip         = F.AutoNoclip         or false
+F.AutoNoclip         = F.AutoNoclip         or false   -- NEW
 F.TargetPlatform     = F.TargetPlatform     or 1
 F.ScriptSpeed        = F.ScriptSpeed        or "Medium"
+-- v4.4: сервер всех hit-ремоутов ждёт {name}, а не голую строку.
+-- Раньше здесь стояла #1, и свежий инжект (новый _G) возвращал её
+-- обратно — яйца/вольт/босс/зоны молчали, работала только индейка
+-- (она шлёт массив в обход формы).
 F.ArgShape           = F.ArgShape           or 2
 F.EggAll             = F.EggAll             or false
 
@@ -131,6 +144,9 @@ local function hitInterval()
     return (CFG.hitWait[F.ScriptSpeed] or CFG.hitWait.Medium)
 end
 
+-----------------------------------------------------------------------
+-- 2. СТАТИСТИКА
+-----------------------------------------------------------------------
 local S = {
     hits = 0, errors = 0, inflight = 0,
     lastError = nil, startedAt = os.time(),
@@ -141,6 +157,16 @@ local S = {
     missing = {},
 }
 
+-----------------------------------------------------------------------
+-- 3. РЕМОУТЫ
+--    v4.0 знал ровно один адрес:
+--        ReplicatedStorage.Packages.Knit.Services.<S>.RF.<R>
+--    Если игра держит ремоуты иначе — все фичи молчали, потому что
+--    nil никто не проверял. v4.1 индексирует ВСЁ дерево
+--    ReplicatedStorage, матчит по имени (точное совпадение весит
+--    больше вхождения), кэширует найденное и помнит, какие имена
+--    так и не нашлись — они видны в INFO.
+-----------------------------------------------------------------------
 local REMOTE_CLASSES = {
     RemoteEvent = true,
     RemoteFunction = true,
@@ -152,6 +178,9 @@ local rResolved = {}
 local rWarned   = {}
 local shapeLock = {}
 
+-- формы аргумента для ремоутов, принимающих имя цели.
+-- 7 и 8 шлют саму модель: у индеек имя у всех "Turkey", и сервер
+-- может различать их только по ссылке на объект.
 local ARG_SHAPES = {
     { id = 1, label = "name",       build = function(n) return n end },
     { id = 2, label = "{name}",     build = function(n) return { n } end },
@@ -162,6 +191,10 @@ local ARG_SHAPES = {
     { id = 7, label = "model",      build = function(n, o) return o or n end },
     { id = 8, label = "{model}",    build = function(n, o) return { o or n } end },
 }
+
+-- Миграция v4.3 -> v4.4. Старый конфиг (_G и JSON) мог держать форму #1
+-- (голая строка). Сервер её не принимает — яйца, вольт, босс и зоны
+-- молчали. Один раз переписываем на #2 ({name}) и помечаем версию.
 if CFG.version ~= "4.4" then
     F.ArgShape = 2
     CFG.version = "4.4"
@@ -219,6 +252,10 @@ local function findRemote(service, names)
     return nil
 end
 
+-- Точный путь, который игра использует сейчас:
+--   ReplicatedStorage.Packages.Knit.Services.<Service>.(RF|RE).<Remote>
+-- Проверяется первым: если ремоут лежит там, никакой скоринг уже не
+-- нужен и перепутать его с похожим именем невозможно.
 local function canonicalRemote(service, name)
     local node = ReplicatedStorage
     for _, seg in ipairs({ "Packages", "Knit", "Services", service }) do
@@ -243,6 +280,7 @@ local function canonicalRemote(service, name)
     return nil
 end
 
+-- names — строка или массив кандидатов, в порядке приоритета
 local function remote(service, names)
     if type(names) == "string" then names = { names } end
     local key = service .. "/" .. names[1]
@@ -270,6 +308,7 @@ local function remote(service, names)
     return nil, nil
 end
 
+-- единая точка выстрела: кап параллельных запросов, счёт, лог ошибок
 local function fireArgs(e, args)
     if not e or not e.obj or not e.obj.Parent then return false end
     if S.inflight >= CFG.maxInflight then return false end
@@ -303,11 +342,18 @@ local function shapeOf(e)
     return ARG_SHAPES[2]
 end
 
+-- объявлена ниже (секция 5.5): нужна здесь для авто-калибровки
 local testShapes
 
 local calibrating = {}
 local calibTried  = {}
 
+-- Авто-калибровка формы аргумента. Первый выстрел по незнакомому
+-- ремоуту запускает в фоне перебор всех форм; победитель пишется в
+-- shapeLock[e.path] и дальше используется молча. Так фича работает
+-- даже если ручной слайдер сбит или _G сброшен новым инжектом.
+-- calibTried не даёт долбить сервер перебором каждый цикл, если
+-- ответа не было вовсе.
 local function autoCalibrate(service, names, target, obj)
     if not CFG.autoCalibrate then return end
     if type(target) ~= "string" or target == "" then return end
@@ -332,6 +378,7 @@ local function autoCalibrate(service, names, target, obj)
     end)
 end
 
+-- вызов по имени цели (яйцо, индейка, босс); obj — сама модель, если есть
 local function hitRemote(service, names, target, obj)
     local found, e = remote(service, names)
     if not found then return false end
@@ -339,12 +386,20 @@ local function hitRemote(service, names, target, obj)
     return fireArgs(e, table.pack(shapeOf(e).build(target, obj)))
 end
 
+-- вызов с фиксированными аргументами (номер платформы, id яйца и т.п.)
 local function invokeNum(service, names, ...)
     local obj, e = remote(service, names)
     if not obj then return false end
     return fireArgs(e, table.pack(...))
 end
 
+-- Кандидаты имён. Точное совпадение побеждает; если игра
+-- переименовала ремоут — сработает вхождение.
+local EGG_REMOTES     = { "RequestHitEgg", "HitEgg", "RequestEggHit", "RequestHit" }
+local VAULT_REMOTES   = { "RequestHitVaultEgg", "HitVaultEgg", "RequestHitEggVault", "RequestHitBigEgg" }
+-- Turkey: сервер ждёт МАССИВ id ("t903","t904"), а не имя модели.
+-- RequestHitTurkeys -> RemoteFunction, возвращает true.
+-- TurkeyHit         -> RemoteEvent, сервер->клиент, { { Id = "t904" } }.
 local TURKEY_HIT_REMOTES   = { "RequestHitTurkeys", "RequestHitTurkey", "HitTurkeys", "HitTurkey" }
 local TURKEY_EVENT_REMOTES = { "TurkeyHit", "OnTurkeyHit", "TurkeyHitEvent" }
 local TURKEY_REMOTES       = TURKEY_HIT_REMOTES   -- старый алиас, используется в PROBE/TEST HIT
@@ -354,6 +409,9 @@ local COLLECT_REMOTES = { "RequestPlatformCollect", "PlatformCollect", "RequestC
 local UPGRADE_REMOTES = { "RequestPlatformUpgrade", "PlatformUpgrade", "RequestUpgrade" }
 local REBIRTH_REMOTES = { "RequestRebirth", "Rebirth", "RequestRebirthPlayer" }
 
+-----------------------------------------------------------------------
+-- 4. ПЕРСОНАЖ
+-----------------------------------------------------------------------
 local cachedChar, cachedHum, cachedHrp
 
 local function refreshChar()
@@ -376,6 +434,10 @@ local function partOf(d)
     return d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
 end
 
+-- Папки, где игра держит яйца и вольт. Раньше обе фичи читали один и
+-- тот же список "Eggs/EggRenderModels", поэтому вольт либо не находил
+-- свои модели, либо долбил обычные яйца чужим ремоутом. Теперь у
+-- вольта свой набор контейнеров и свой кэш.
 local EGG_CONTAINERS = { "Eggs", "EggRenderModels", "EggRenders" }
 local VAULT_CONTAINERS = {
     "EggVault", "EggVaultModels", "EggVaultRenders", "VaultEggs",
@@ -418,6 +480,8 @@ local function scanContainers(folders)
             end
         end
     end
+    -- UUID-имена в приоритете; если игра называет яйца иначе —
+    -- берём всё, что лежит в папках, вместо пустого списка.
     if #list == 0 then list = loose end
     return list
 end
@@ -442,6 +506,7 @@ local function refreshVaultEggs()
     return list
 end
 
+-- для кнопки диагностики: что реально нашлось в воркспейсе
 local function containerDump()
     local L = {}
     local function group(title, names)
@@ -465,6 +530,20 @@ local function containerDump()
     return table.concat(L, "\n")
 end
 
+-----------------------------------------------------------------------
+-- TURKEY
+--   workspace.TurkeyRenders/<Turkey>, внутри — объект Hitbox.
+--   Сервер различает индеек по строковому id вида "t904", поэтому
+--   модель мало найти — надо вытащить её id. Где именно игра его
+--   держит, из исходников не видно, поэтому id ищется по всем
+--   разумным местам, от дешёвых к дорогим:
+--     1. имя самой модели
+--     2. атрибуты модели (Id / ID / id / TurkeyId / Identifier ...)
+--     3. атрибуты и имена потомков, значения ValueBase
+--     4. имя Hitbox и его атрибуты
+--   Если ни один шаг не дал id — вкладка TURKEY покажет SCAN с полным
+--   деревом модели, а перебор t1..tN останется рабочим запасным путём.
+-----------------------------------------------------------------------
 local TURKEY_FOLDERS  = { "TurkeyRenders", "TurkeyRenderModels", "Turkeys", "TurkeyModels" }
 local TURKEY_DROP_FOLDERS = { "TurkeyDrops", "TurkeyDrop", "TurkeyCoins", "TurkeyCoinDrops" }
 local TURKEY_ID_MATCH = "^[tT]%d+$"
@@ -496,6 +575,12 @@ local function attrIdOf(obj)
     return nil
 end
 
+-- id модели индейки.
+-- Строгий проход ищет всё, что похоже на "t904" (имя модели, имя потомка,
+-- значения ValueBase, атрибуты). Свободный проход запоминает первое
+-- непустое значение из ValueBase/атрибутов и отдаётся только если
+-- строгий проход ничего не нашёл — имя части вроде "Hitbox" сюда не
+-- попадает и не может подменить настоящий id.
 local function turkeyIdOf(model, hitbox)
     if not model then return nil end
     local loose = nil
@@ -546,6 +631,9 @@ local function turkeyIdOf(model, hitbox)
         if hit then return hit end
     end
 
+    -- последний шанс: имя модели само может быть идентификатором
+    -- ("Turkey_903", "903"). Общие имена вроде "Turkey" не берём —
+    -- они одинаковые у всех и серверу ничего не скажут.
     local nm = model.Name
     if not loose and nm ~= "" and not nm:lower():match("^turkey") then
         loose = nm:match("^%d+$") and ("t" .. nm) or nm
@@ -621,6 +709,9 @@ local function refreshTurkeys()
     return list
 end
 
+-- Полный дамп индейки: контейнер, модель, id, хитбокс, атрибуты,
+-- всё поддерево. Нужен, когда id не нашёлся автоматически.
+local function turkeyDump(maxModels)
     maxModels = maxModels or 3
     local L = {}
     local function line(s) L[#L + 1] = tostring(s) end
@@ -714,6 +805,13 @@ local function nearest(list, origin)
     return best, bestDist
 end
 
+-----------------------------------------------------------------------
+-- 5.4 ДРОП ИНДЕЙКИ — workspace.TurkeyDrops/TurkeyCoin
+--   После смерти индейки игра кладёт в TurkeyDrops меш TurkeyCoin.
+--   Монета подбирается прикосновением, поэтому главное — дойти.
+--   ProximityPrompt/ClickDetector на монете добиваются отдельно, если
+--   исполнитель умеет их дёргать.
+-----------------------------------------------------------------------
 local function turkeyDropFolders()
     local out = {}
     for _, n in ipairs(TURKEY_DROP_FOLDERS) do
@@ -774,6 +872,9 @@ local function refreshTurkeyCoins()
     return list
 end
 
+-- Монета, к которой не смогли дойти/подобрать, уходит в карантин на 30 с,
+-- иначе цикл навсегда залипает на недостижимом дропе. Ключи слабые —
+-- собранная монета сама выпадает из таблицы.
 local coinSkip = setmetatable({}, { __mode = "k" })
 
 local function coinBlocked(part)
@@ -824,6 +925,13 @@ local function firePromptsNear(part, radius)
     return fired
 end
 
+-----------------------------------------------------------------------
+-- 5.5 ПРОБА — что реально лежит в игре
+--     Кнопка в INFO собирает отчёт: все ремоуты с путями, дерево
+--     TurkeyRenders, папки яиц и — если попросить — тест всех форм
+--     аргумента на живом ремоуте. Отчёт уходит в консоль, в буфер
+--     обмена (если исполнитель умеет) и в поле на экране.
+-----------------------------------------------------------------------
 local function fmtList(tbl, maxN)
     maxN = maxN or 12
     local out = {}
@@ -832,8 +940,16 @@ local function fmtList(tbl, maxN)
     return table.concat(out, ", ")
 end
 
+-- Порядок перебора. #2 ({name}) идёт первой: это подтверждённый
+-- контракт сервера яиц, и если он рабочий — остальные формы не шлются
+-- вовсе. #1 последней из строковых: голая строка скорее вернёт мусор,
+-- чем сломает яйцо.
 local SHAPE_ORDER = { 2, 3, 4, 5, 6, 1, 7, 8 }
 
+-- Вызывается и вручную (PROBE), и из autoCalibrate. Победитель — первая
+-- форма, на которую сервер ответил правдой (RemoteFunction) или после
+-- которой цель исчезла (RemoteEvent). Как только он найден, перебор
+-- обрывается: восемь ударов по одному яйцу не нужны.
 testShapes = function(service, names, target, L, tag, model)
     local found, e = remote(service, names)
     if not found then
@@ -866,7 +982,7 @@ testShapes = function(service, names, target, L, tag, model)
                 L[#L + 1] = "      gone=" .. tostring(gone)
                 if gone then winner = winner or s end
             else
-                task.wait(0.05)
+                task.wait(0.05) -- не спамим сервер восемью вызовами в одном кадре
             end
         end
         if winner then break end
@@ -959,6 +1075,8 @@ local function probeReport(withTest)
             end
         end
 
+        -- Turkey: аргумент — массив id, поэтому общий перебор форм
+        -- здесь не годится. Проверяем ровно то, что шлёт фича.
         line("")
         line("--- TURKEY BATCH TEST ---")
         local ids = {}
@@ -1002,6 +1120,14 @@ local function publishProbe(withTest)
     return report, copied
 end
 
+-----------------------------------------------------------------------
+-- 6. ФИЧИ
+-----------------------------------------------------------------------
+
+-- NEW: AUTO HIT TURKEY -------------------------------------------------
+--   TurkeyService.RF.RequestHitTurkeys ждёт МАССИВ id: {"t903","t904"}.
+--   Один вызов = одна пачка. Пачка режется по CFG.turkeyBatch, чтобы
+--   не улетать в лимит аргументов и не ловить кик за спам.
 local turkeyWarnedNoId = false
 local bruteCursor = 1
 local turkeyCursor = 1
@@ -1021,6 +1147,7 @@ local function turkeyIdsInRange(list, origin, range, ignoreRange)
     return rows
 end
 
+-- Отправка массива id в TurkeyService. Возвращает число отправленных id.
 local function fireTurkeyBatch(ids)
     if #ids == 0 then return 0 end
     local e = select(2, remote("TurkeyService", TURKEY_HIT_REMOTES))
@@ -1048,6 +1175,8 @@ local function fireTurkeyBatch(ids)
     return sent
 end
 
+-- Перебор t1..tN: единственный путь, когда игра не отдаёт id клиенту.
+-- За тик уходит одна пачка, курсор двигается по кругу.
 local function fireTurkeyBrute()
     local total = math.max(1, math.floor(F.TurkeyBruteMax or 1000))
     local step = math.max(1, math.floor(CFG.turkeyBatch))
@@ -1062,6 +1191,8 @@ local function fireTurkeyBrute()
     return fireTurkeyBatch(ids)
 end
 
+-- Ходьба, а не телепорт: MoveTo каждый тик (сам по себе он затухает
+-- через 8 с), плюс прыжок, если упёрлись в геометрию и стоим на месте.
 local lastJumpAt = 0
 local function walkTo(hum, hrp, pos)
     hum:MoveTo(pos)
@@ -1084,6 +1215,10 @@ local function featureTurkey()
 
     local list = refreshTurkeys()
 
+    -- 1. УДАР. Летит всегда и независимо от дистанции: сервер её не
+    --    проверяет, поэтому бить можно на ходу, пока идём к цели.
+    --    Окно по списку, а не жёсткая отсечка: иначе при большом загоне
+    --    всегда бьются одни и те же ближние индейки, а дальние — никогда.
     local sent = 0
     if #list > 0 then
         local rows = turkeyIdsInRange(list, hrp.Position, CFG.ranges.turkey, F.TurkeyAll)
@@ -1169,6 +1304,7 @@ local function featureTurkey()
     end
 end
 
+-- AUTO HIT ALL ---------------------------------------------------------
 local function featureEggs()
     if not F.AutoBreak then return end
     local _, _, hrp = refreshChar()
@@ -1188,6 +1324,7 @@ local function featureEggs()
     end
 end
 
+-- AUTO HIT EGG VAULT ---------------------------------------------------
 local function featureVault()
     if not F.AutoHitBigEgg then return end
     local _, _, hrp = refreshChar()
@@ -1204,6 +1341,7 @@ local function featureVault()
     end
 end
 
+-- AUTO HIT HALLOWEEN (без UUID-фильтра) --------------------------------
 local function featureEvent()
     if not F.AutoHitHalloween then return end
     local _, _, hrp = refreshChar()
@@ -1227,6 +1365,7 @@ local function featureEvent()
     end
 end
 
+-- AUTO BREAK BOSS ------------------------------------------------------
 -- v3.1 слала {name}; голую строку сервер не принимает. Теперь через
 -- hitRemote — та же форма и та же авто-калибровка, что у яиц.
 local function featureBoss()
@@ -1236,6 +1375,7 @@ local function featureBoss()
     end
 end
 
+-- KEY VAULT ------------------------------------------------------------
 local function featureKeyVault()
     local zone = nil
     if F.AutoKeyVaultZone1 then zone = "StealZone1"
@@ -1251,6 +1391,7 @@ local function featureKeyVault()
     local zp = zones and zones:FindFirstChild(zone)
     if not zp then return end
 
+    -- обычные яйца + вольт: в зоне могут лежать и те, и другие
     local targets, seen = {}, {}
     for _, e in ipairs(refreshEggs()) do
         if not seen[e.obj] and (e.part.Position - zp.Position).Magnitude <= 100 then
@@ -1292,6 +1433,7 @@ local function featureKeyVault()
     end
 end
 
+-- BUY EGGS -------------------------------------------------------------
 local function featureBuyEggs()
     if not F.AutoBuyEggs then return end
     for _, name in ipairs(EggOrder) do
@@ -1302,11 +1444,13 @@ local function featureBuyEggs()
     end
 end
 
+-- COLLECT --------------------------------------------------------------
 local function featureCollect()
     if not F.AutoCollect then return end
     for i = 1, 60 do invokeNum("BaseService", COLLECT_REMOTES, i) end
 end
 
+-- UPGRADE --------------------------------------------------------------
 local function featureUpgrade()
     if F.AutoUpgradeAll then
         for i = 1, 30 do invokeNum("BaseService", UPGRADE_REMOTES, i) end
@@ -1315,11 +1459,13 @@ local function featureUpgrade()
     end
 end
 
+-- REBIRTH --------------------------------------------------------------
 local function featureRebirth()
     if not F.AutoRebirth then return end
     invokeNum("RebirthService", REBIRTH_REMOTES)
 end
 
+-- PICK UP --------------------------------------------------------------
 local function featurePickup()
     if not F.AutoPickUp then return end
     local _, _, hrp = refreshChar()
@@ -1353,6 +1499,7 @@ local function featurePickup()
     end
 end
 
+-- INSTANT INTERACT -----------------------------------------------------
 local function featureInstant()
     if not F.InstantPrompt then return end
     for _, d in ipairs(refreshPrompts()) do
@@ -1360,6 +1507,7 @@ local function featureInstant()
     end
 end
 
+-- BYPASS ZONES ---------------------------------------------------------
 local function featureBypass()
     if not F.BypassZones then return end
     local w = workspace:FindFirstChild("World")
@@ -1382,6 +1530,11 @@ local function featureNoclip()
     end
 end
 
+-----------------------------------------------------------------------
+-- 7. ПЛАНИРОВЩИК
+--    Один Heartbeat вместо дюжины while task.wait(...) потоков.
+--    Каждая задача сама говорит, через сколько её звать.
+-----------------------------------------------------------------------
 local tasks = {}
 local function addTask(intervalFn, fn)
     tasks[#tasks + 1] = { t = 0, interval = intervalFn, fn = fn }
@@ -1441,6 +1594,11 @@ addTask(function() return 1.5 end, featureBypass)
 addTask(function() return 0.1 end, featureNoclip)
 addTask(function() return 5.0 end, featureAntiAfk)
 
+-----------------------------------------------------------------------
+-- 8. АНТИ-AFK
+--    Сами соединения игры отключаются лениво — в момент, когда анти-афк
+--    реально понадобился (armAntiAfk), а не при загрузке скрипта.
+-----------------------------------------------------------------------
 LocalPlayer.Idled:Connect(function()
     if not autoAfkWanted() then return end
     armAntiAfk()
@@ -1450,6 +1608,9 @@ LocalPlayer.Idled:Connect(function()
     end)
 end)
 
+-----------------------------------------------------------------------
+-- 9. ТЕМА И ХЕЛПЕРЫ UI
+-----------------------------------------------------------------------
 local T = {
     bg       = Color3.fromRGB(9, 10, 13),
     panel    = Color3.fromRGB(15, 17, 22),
@@ -1525,6 +1686,9 @@ local function makeDraggable(frame, handle)
     end)
 end
 
+-----------------------------------------------------------------------
+-- 10. GUI
+-----------------------------------------------------------------------
 local Gui = new("ScreenGui", {
     Name = "FARTEZ_LUCKY_HUB",
     ResetOnSpawn = false,
@@ -1571,6 +1735,7 @@ local function notify(text, color)
     end)
 end
 
+-- плавающая кнопка
 local OpenBtn = new("ImageButton", {
     Size = UDim2.new(0, 48, 0, 48),
     Position = UDim2.new(0, 16, 0, 140),
@@ -1583,6 +1748,7 @@ corner(OpenBtn, 24)
 stroke(OpenBtn, T.accent, 2)
 makeDraggable(OpenBtn, OpenBtn)
 
+-- главное окно
 local Main = new("Frame", {
     Size = UDim2.new(0, 432, 0, 508),
     Position = UDim2.new(0.5, -216, 0.5, -254),
@@ -1593,6 +1759,7 @@ local Main = new("Frame", {
 corner(Main, 14)
 stroke(Main, T.line, 1)
 
+-- шапка
 local Header = new("Frame", {
     Size = UDim2.new(1, 0, 0, 58),
     BackgroundColor3 = T.panel,
@@ -1720,6 +1887,9 @@ local EggsPage    = makePage("eggs", "EGGS")
 local FarmPage    = makePage("farm", "FARM")
 local InfoPage    = makePage("info", "INFO")
 
+-----------------------------------------------------------------------
+-- 11. КОМПОНЕНТЫ
+-----------------------------------------------------------------------
 local function section(parent, text)
     return new("TextLabel", {
         Size = UDim2.new(1, 0, 0, 16),
@@ -1916,6 +2086,9 @@ local function buttonRow(parent, text, cb, color)
     return b
 end
 
+-----------------------------------------------------------------------
+-- 12. СТРАНИЦА MAIN
+-----------------------------------------------------------------------
 do
     section(MainPage, "СКОРОСТЬ")
     local speedBox = new("Frame", {
@@ -2066,6 +2239,9 @@ do
     end)
 end
 
+-----------------------------------------------------------------------
+-- 13. СТРАНИЦА TURKEY  (новое)
+-----------------------------------------------------------------------
 local turkeyCountLabel
 do
     local hero = new("Frame", {
@@ -2255,6 +2431,9 @@ do
     }, TurkeyPage)
 end
 
+-----------------------------------------------------------------------
+-- 14. СТРАНИЦА EGGS
+-----------------------------------------------------------------------
 do
     section(EggsPage, "МАГАЗИН ЯИЦ")
     for _, eggName in ipairs(EggOrder) do
@@ -2293,6 +2472,9 @@ do
         function(v) return v .. " studs" end)
 end
 
+-----------------------------------------------------------------------
+-- 15. СТРАНИЦА FARM
+-----------------------------------------------------------------------
 do
     section(FarmPage, "БАЗА")
     switchRow(FarmPage, "AUTO COLLECT", "AutoCollect", "платформы 1..60")
@@ -2306,6 +2488,9 @@ do
         function(v) return "#" .. v end)
 end
 
+-----------------------------------------------------------------------
+-- 16. СТРАНИЦА INFO
+-----------------------------------------------------------------------
 local infoLabels = {}
 do
     local function infoLine(text, color, size)
@@ -2443,6 +2628,9 @@ do
     infoLine("FARTEZ LUCKY HUB · v4.4", T.accent2, 12)
 end
 
+-----------------------------------------------------------------------
+-- 17. СОХРАНЕНИЕ / ЗАГРУЗКА КОНФИГА
+-----------------------------------------------------------------------
 if type(readfile) == "function" and type(isfile) == "function" then
     pcall(function()
         if isfile("fartez_hub_v4.json") then
@@ -2508,6 +2696,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
+-----------------------------------------------------------------------
+-- 19. ГЛАВНЫЙ ЦИКЛ
+-----------------------------------------------------------------------
 local heartbeat
 local running = true
 local fpsFrames, fpsTime = 0, 0
@@ -2580,6 +2771,9 @@ heartbeat = RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
+-----------------------------------------------------------------------
+-- 20. УБОРКА
+-----------------------------------------------------------------------
 local function destroy()
     running = false
     if heartbeat then heartbeat:Disconnect() end
