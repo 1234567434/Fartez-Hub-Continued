@@ -1,5 +1,5 @@
 --=====================================================================
---  FARTEZ LUCKY HUB  ·  v4.6  "SELF-HEAL EDITION"
+--  FARTEZ LUCKY HUB  ·  v4.5  VAULT SPEED FIX
 --  Break a Brainrot Egg — полная переписка движка и интерфейса
 --=====================================================================
 local Players           = game:GetService("Players")
@@ -86,6 +86,9 @@ F.AntiAfkFast        = F.AntiAfkFast        or false
 -- v4.6: самолечение. RemoteFunction отвечает true/false — false значит
 -- «форма или имя не те». После CFG.healAfter отказов подряд форма
 -- сбрасывается и калибруется заново, потом пробуется alt-имя цели.
+-- v4.7: вольт перестал ползти. Свой кап (CFG.vaultTargets), свой запас
+-- inflight (CFG.vaultReserve) сверх потолка Auto Hit All, кулдаун на имя
+-- цели и подход к вольту, когда ни одно яйцо не в радиусе.
 
 F.HubConfig = F.HubConfig or {
     hitWait = { Low = 0.30, Medium = 0.10, Max = 0.015 },
@@ -100,7 +103,7 @@ F.HubConfig = F.HubConfig or {
     turkeyCoinWait= 12,
     autoCalibrate = true,
     eggAllTargets = 40,
-    version       = "4.6",
+    version       = "4.7",
 }
 
 local CFG = F.HubConfig
@@ -132,6 +135,13 @@ if type(CFG.healAfter) ~= "number" then CFG.healAfter = 25 end
 CFG.healAfter = math.clamp(math.floor(CFG.healAfter), 5, 500)
 if type(CFG.eggAllTargets) ~= "number" then CFG.eggAllTargets = 40 end
 CFG.eggAllTargets = math.clamp(math.floor(CFG.eggAllTargets), 1, 80)
+-- вольт: свой кап на цикл, свой запас inflight и кулдаун на цель
+if type(CFG.vaultTargets) ~= "number" then CFG.vaultTargets = 24 end
+CFG.vaultTargets = math.clamp(math.floor(CFG.vaultTargets), 1, 80)
+if type(CFG.vaultReserve) ~= "number" then CFG.vaultReserve = 12 end
+CFG.vaultReserve = math.clamp(math.floor(CFG.vaultReserve), 0, 48)
+if type(CFG.vaultCooldown) ~= "number" then CFG.vaultCooldown = 0.5 end
+CFG.vaultCooldown = math.clamp(CFG.vaultCooldown, 0, 5)
 if type(CFG.version) ~= "string" then CFG.version = "0" end
 
 if F.TurkeyTravel == nil then F.TurkeyTravel = CFG.turkeyTravel end
@@ -216,9 +226,9 @@ local ARG_SHAPES = {
 -- Миграция v4.3 -> v4.4. Старый конфиг (_G и JSON) мог держать форму #1
 -- (голая строка). Сервер её не принимает — яйца, вольт, босс и зоны
 -- молчали. Один раз переписываем на #2 ({name}) и помечаем версию.
-if CFG.version ~= "4.6" then
+if CFG.version ~= "4.7" then
     F.ArgShape = 2
-    CFG.version = "4.6"
+    CFG.version = "4.7"
 end
 if type(F.ArgShape) ~= "number" then F.ArgShape = 2 end
 F.ArgShape = math.clamp(math.floor(F.ArgShape), 1, #ARG_SHAPES)
@@ -329,10 +339,12 @@ local function remote(service, names)
     return nil, nil
 end
 
--- единая точка выстрела: кап параллельных запросов, счёт, лог ошибок
-local function fireArgs(e, args)
+-- единая точка выстрела: кап параллельных запросов, счёт, лог ошибок.
+-- reserve — запас сверх общего потолка: вольт не должен стоять в очереди
+-- за Auto Hit All, который в одиночку забивает все слоты.
+local function fireArgs(e, args, reserve)
     if not e or not e.obj or not e.obj.Parent then return false end
-    if S.inflight >= CFG.maxInflight then return false end
+    if S.inflight >= CFG.maxInflight + (reserve or 0) then return false end
     S.inflight += 1
     S.hits += 1
     task.spawn(function()
@@ -413,7 +425,7 @@ end
 
 -- вызов по имени цели (яйцо, индейка, босс); obj — сама модель, если есть,
 -- alt — второе имя из атрибута/дочернего StringValue (может быть nil).
-local function hitRemote(service, names, target, obj, alt)
+local function hitRemote(service, names, target, obj, alt, reserve)
     local found, e = remote(service, names)
     if not found then return false end
 
@@ -440,7 +452,7 @@ local function hitRemote(service, names, target, obj, alt)
     if heal.alt[e.path] and alt then target = alt end
 
     if not shapeLock[e.path] then autoCalibrate(service, names, target, obj) end
-    return fireArgs(e, table.pack(shapeOf(e).build(target, obj)))
+    return fireArgs(e, table.pack(shapeOf(e).build(target, obj)), reserve)
 end
 
 -- вызов с фиксированными аргументами (номер платформы, id яйца и т.п.)
@@ -588,9 +600,12 @@ local vaultCache = { at = -math.huge, list = {} }
 local function refreshVaultEggs()
     local now = os.clock()
     if now - vaultCache.at < 0.35 then return vaultCache.list end
-    local list = scanContainers(containersOf(VAULT_CONTAINERS))
-    -- отдельной папки может не быть — тогда вольт лежит в общих яйцах
-    if #list == 0 then list = refreshEggs() end
+    local folders = containersOf(VAULT_CONTAINERS)
+    local list = scanContainers(folders)
+    -- Фолбэк только когда папок вольта нет ВООБЩЕ. Раньше он срабатывал и
+    -- на пустую папку — и вольт-фича долбила обычные яйца чужим ремоутом,
+    -- получала false, сжигала слоты и стояла в самолечении по кругу.
+    if #list == 0 and #folders == 0 then list = refreshEggs() end
     vaultCache.at, vaultCache.list = now, list
     return list
 end
@@ -1088,7 +1103,7 @@ local function probeReport(withTest)
     local L = {}
     local function line(s) L[#L + 1] = tostring(s) end
 
-    line("=== FARTEZ PROBE v4.6 ===")
+    line("=== FARTEZ PROBE v4.7 ===")
     line("place=" .. tostring(game.PlaceId) .. "  job=" .. tostring(game.JobId))
     local exOk, exName = pcall(function()
         return (type(identifyexecutor) == "function") and identifyexecutor() or "?"
@@ -1426,19 +1441,56 @@ local function featureEggs()
 end
 
 -- AUTO HIT EGG VAULT ---------------------------------------------------
+-- Почему вольт полз: у него был общий кап 12, общий inflight с Auto Hit All
+-- (который один забивал все 24 слота) и никакого кулдауна на цель. В итоге
+-- цикл тратился на одни и те же ближайшие яйца, а остальные не получали
+-- ни одного удара. Теперь у вольта свой кап, свой запас inflight, кулдаун
+-- на имя цели и подход к вольту, если ни одно яйцо не в радиусе.
+local vaultHitAt = {}
+local vaultPruneAt = 0
+
+local function vaultPrune(now)
+    if now - vaultPruneAt < 5 then return end
+    vaultPruneAt = now
+    for k, at in pairs(vaultHitAt) do
+        if now - at > CFG.vaultCooldown * 4 then vaultHitAt[k] = nil end
+    end
+end
+
 local function featureVault()
     if not F.AutoHitBigEgg then return end
-    local _, _, hrp = refreshChar()
+    local _, hum, hrp = refreshChar()
     if not hrp then return end
     local list = refreshVaultEggs()
     S.vault = #list
     if #list == 0 then return end
+
+    local now = os.clock()
+    vaultPrune(now)
+
+    -- подход: держим дистанцию в треть радиуса, а не на самой границе.
+    -- Сервер валит удар, если игрок далеко, и такой отказ ещё и кормил
+    -- самолечение — оно сбрасывало форму и тратило цикл на перекалибровку.
+    local near, ndist = nearest(list, hrp.Position)
+    if near and not F.AutoHitTurkey and ndist > CFG.ranges.vault * 0.35 then
+        walkTo(hum, hrp, near.part.Position)
+    end
+
     local sorted = inRange(list, hrp.Position, CFG.ranges.vault)
+    if #sorted == 0 then return end
+
     local n = 0
     for _, e in ipairs(sorted) do
-        if n >= CFG.maxTargets then break end
-        hitRemote("EggVaultService", VAULT_REMOTES, e.t.name, e.t.obj, e.t.alt)
-        n += 1
+        if n >= CFG.vaultTargets then break end
+        local name = e.t.name
+        local at = vaultHitAt[name]
+        if at == nil or (now - at) >= CFG.vaultCooldown then
+            if hitRemote("EggVaultService", VAULT_REMOTES, name, e.t.obj, e.t.alt,
+                CFG.vaultReserve) then
+                vaultHitAt[name] = now
+                n += 1
+            end
+        end
     end
 end
 
@@ -1641,6 +1693,15 @@ local function featureApproach()
     if F.AutoHitTurkey then return end
     local _, hum, hrp = refreshChar()
     if not hum or not hrp then return end
+    -- вольт важнее яиц: если он включён и в его радиусе пусто, MoveTo
+    -- принадлежит вольту. Иначе яичный подход и вольт тянут персонажа
+    -- в разные стороны и оба стоят на месте.
+    if F.AutoHitBigEgg then
+        local vault = refreshVaultEggs()
+        if #vault > 0 and #inRange(vault, hrp.Position, CFG.ranges.vault) == 0 then
+            return
+        end
+    end
     local list = refreshEggs()
     if #list == 0 then return end
     local near, dist = nearest(list, hrp.Position)
@@ -1854,8 +1915,8 @@ local function featureAntiAfk()
 end
 
 addTask(hitInterval, featureTurkey)
-addTask(hitInterval, featureEggs)
 addTask(hitInterval, featureVault)
+addTask(hitInterval, featureEggs)
 addTask(hitInterval, featureEvent)
 addTask(hitInterval, featureBoss)
 addTask(hitInterval, featureKeyVault)
@@ -2021,7 +2082,7 @@ local OpenBtn = new("ImageButton", {
     Size = UDim2.new(0, 48, 0, 48),
     Position = UDim2.new(0, 16, 0, 140),
     BackgroundColor3 = T.surface2,
-    Image = "rbxthumb://type=Asset&id=108063912516457&w=150&h=150",
+    Image = "rbxthumb://type=Asset&id=117149073945265&w=150&h=150",
     AutoButtonColor = false,
     BorderSizePixel = 0,
 }, Gui)
@@ -2059,7 +2120,7 @@ local Logo = new("ImageLabel", {
     Size = UDim2.new(0, 34, 0, 34),
     Position = UDim2.new(0, 12, 0.5, -17),
     BackgroundTransparency = 1,
-    Image = "rbxthumb://type=Asset&id=108063912516457&w=150&h=150",
+    Image = "rbxthumb://type=Asset&id=117149073945265&w=150&h=150",
 }, Header)
 corner(Logo, 8)
 
@@ -2078,7 +2139,7 @@ new("TextLabel", {
     Size = UDim2.new(0, 220, 0, 14),
     Position = UDim2.new(0, 54, 0, 30),
     BackgroundTransparency = 1,
-    Text = "v4.6  ·  self-heal edition",
+    Text = "v4.7  ·  vault speed",
     TextColor3 = T.accent2,
     TextSize = 10,
     Font = Enum.Font.GothamMedium,
@@ -2752,6 +2813,20 @@ do
         function() return CFG.ranges.pickup end,
         function(v) CFG.ranges.pickup = v end,
         function(v) return v .. " studs" end)
+
+    section(EggsPage, "ВОЛЬТ")
+    sliderRow(EggsPage, "Радиус вольта", 30, 1000, 10,
+        function() return CFG.ranges.vault end,
+        function(v) CFG.ranges.vault = v end,
+        function(v) return v .. " studs" end)
+    sliderRow(EggsPage, "Яиц за цикл", 1, 80, 1,
+        function() return CFG.vaultTargets end,
+        function(v) CFG.vaultTargets = math.floor(v) end,
+        function(v) return tostring(math.floor(v)) end)
+    sliderRow(EggsPage, "Кулдаун цели", 0, 3, 0.1,
+        function() return CFG.vaultCooldown end,
+        function(v) CFG.vaultCooldown = v end,
+        function(v) return string.format("%.1f s", v) end)
 end
 
 -----------------------------------------------------------------------
@@ -2870,12 +2945,15 @@ do
     buttonRow(InfoPage, "Сохранить конфиг", function()
         if type(writefile) ~= "function" then return notify("writefile недоступен", T.danger) end
         local data = {
-            version = "4.6",
+            version = "4.7",
             speed = F.ScriptSpeed,
             ranges = CFG.ranges,
             maxTargets = CFG.maxTargets,
             eggAll = F.EggAll,
             eggAllTargets = CFG.eggAllTargets,
+            vaultTargets = CFG.vaultTargets,
+            vaultReserve = CFG.vaultReserve,
+            vaultCooldown = CFG.vaultCooldown,
             autoCalibrate = CFG.autoCalibrate,
             walkSpeed = F.WalkSpeed,
             jumpPower = F.JumpPower,
@@ -2917,7 +2995,7 @@ do
         notify("Все фичи выключены — перезапусти скрипт для обновления GUI", T.danger)
     end)
 
-    infoLine("FARTEZ LUCKY HUB · v4.6", T.accent2, 12)
+    infoLine("FARTEZ LUCKY HUB · v4.7", T.accent2, 12)
 end
 
 -----------------------------------------------------------------------
@@ -2986,7 +3064,7 @@ do
             ok and T.accent2 or T.danger)
     end)
 
-    note("EXTRA · v4.6", T.accent2)
+    note("EXTRA · v4.7", T.accent2)
 end
 
 
@@ -3029,12 +3107,22 @@ if type(readfile) == "function" and type(isfile) == "function" then
                 -- форму из конфига берём, только если это не #1 (голая
                 -- строка): именно она ломала яйца и вольт в старых версиях.
                 if type(data.argShape) == "number" and data.argShape >= 2
-                    and (data.version == "4.4" or data.version == "4.5" or data.version == "4.6") then
+                    and (data.version == "4.4" or data.version == "4.5"
+                        or data.version == "4.6" or data.version == "4.7") then
                     F.ArgShape = math.clamp(math.floor(data.argShape), 2, #ARG_SHAPES)
                 end
                 if type(data.eggAll) == "boolean" then F.EggAll = data.eggAll end
                 if type(data.eggAllTargets) == "number" then
                     CFG.eggAllTargets = math.clamp(math.floor(data.eggAllTargets), 1, 80)
+                end
+                if type(data.vaultTargets) == "number" then
+                    CFG.vaultTargets = math.clamp(math.floor(data.vaultTargets), 1, 80)
+                end
+                if type(data.vaultReserve) == "number" then
+                    CFG.vaultReserve = math.clamp(math.floor(data.vaultReserve), 0, 48)
+                end
+                if type(data.vaultCooldown) == "number" then
+                    CFG.vaultCooldown = math.clamp(data.vaultCooldown, 0, 5)
                 end
                 if type(data.autoCalibrate) == "boolean" then CFG.autoCalibrate = data.autoCalibrate end
                 if type(data.walkSpeed) == "number" then F.WalkSpeed = math.clamp(data.walkSpeed, 8, 500) end
@@ -3162,5 +3250,5 @@ if getgenv then
     getgenv().FARTEZ_HUB = { destroy = destroy }
 end
 
-notify("FARTEZ v4.6 загружен · RightShift — меню")
-print("[FARTEZ LUCKY HUB v4.6] loaded · self-heal edition")
+notify("FARTEZ v4.7 загружен · RightShift — меню")
+print("[FARTEZ LUCKY HUB v4.5] loaded · vault speed")
